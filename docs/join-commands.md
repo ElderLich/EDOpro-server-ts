@@ -370,7 +370,6 @@ list.
 `RuleMappings`/`isRecognizedToken`, so a bare `w` can never become a pairing
 pool (§5).
 
-
 ## Public lobby invitations
 
 `j,<inviteId>` joins one existing public waiting lobby as a player. `inviteId` is
@@ -396,42 +395,13 @@ Room occupancy and duel state remain the normal authoritative lobby packets.
 Clients must resolve an invitation against the public room list before issuing
 `j,` so connecting to an older server cannot treat that command as a room name.
 
-## First-party room option boundaries
+### Invitation deployment compatibility
 
-Rules apply by tiers (mode, format, then priority modifiers); within each tier,
-later tokens override earlier tokens. Commands are case-insensitive for rules
-but preserve their exact raw spelling/order for pairing identity. `OT` opens
-the card scope while preserving the format list; `TO` selects TCG-only cards and
-the first TCG list. An explicit `LF` must follow `TO` to override that list.
-`NU` is not supported by this parser and must not be offered as a working option.
+Older clients receive no new metadata frame unless they opt in. Updated clients
+must reject missing invitation keys on older servers before sending `j,`.
+Public waiting rooms with free seats support invitations; private, reserved,
+full and started rooms retain their existing admission paths.
 
-The client exposes LP 1–99999, starting hand 1–40, draw 1–35, Master Rule 1–5,
-and exact server list indices. `DR0` becomes 1 and `ST0` becomes 5 on the server,
-so clients reject those values instead of claiming zero. The timer UI uses
-seconds: `TM1` through `TM60` mean minutes, `TM61` through `TM999` mean seconds,
-and `TM0` means zero. Thus only zero, 61–999 seconds, or whole minutes through
-3600 seconds are exactly representable (60 seconds is `TM1`).
-
-`GET /api/resources/version` includes `banlists.ygopro[].index`, the actual
-one-based `LF` index before unnamed rows are filtered. Clients must use this
-index rather than infer array positions: out-of-range server indices currently
-resolve to no banlist. `LF` and `NF` are mutually exclusive in the client.
-Default-equivalent values may omit their redundant tokens. Every command still
-fits the hard 20-unit field; clients must reject overlong combinations and never
-truncate a room name, remove a requested option, or silently change the rules.
-HTTP ranked matchmaking remains the dedicated two-player tcg/jtp/edison queue;
-Tag and custom casual options use the socket room pairing/named-room path.
-
-### Deployment compatibility
-
-| Client / server combination | Presence and invitations | Room options |
-| --- | --- | --- |
-| Older client + updated server | No new metadata frames without the opt-in header; normal room joins unchanged | Existing command parser unchanged |
-| Updated client + older server | Ordinary presence works; invitation preflight finds no instance key and rejects without sending `j,` | Existing supported tokens work within 20 units; LF picker unavailable without explicit indices |
-| Updated client + updated server | Public waiting room invitations target one room instance and retain normal admission | Exact LF picker and supported modifiers available; overlong combinations reject |
-| Private or reserved room | No public invite key; use the existing explicit password/matchmaking path | Existing admission and reservations preserved |
-
-No evolution-api migration or endpoint change is required. Deploying the updated
-EDOpro-server-ts service enables invitations and exact LF metadata; updated
-players supply the opt-in handshake and consume those contracts. No resource
-bundle update is required for these protocol changes.
+Deploy the updated EDOpro-server-ts service and a client that negotiates and
+consumes the invitation metadata. No evolution-api migration, resource bundle
+update or banlist-index API change is required for invitations.
