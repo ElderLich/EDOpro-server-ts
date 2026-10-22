@@ -101,8 +101,19 @@ Four listeners collapse into **two connection handlers**:
 Only the **YGOPro WebSocket** listener authenticates its handshake
 (`HandshakeTicketAuthenticator`: `Authorization: Bearer`, falling back to a
 `?ticket=` query parameter because browsers cannot set WebSocket headers). It
-also runs a ping/pong heartbeat that terminates half-open sockets. The EDOPro
-WebSocket listener has neither.
+also runs a ping/pong heartbeat that terminates half-open sockets (default
+15 s, `YGOPRO_WEBSOCKET_HEARTBEAT_MS`; one missed pong ends the socket, so a dead
+peer is noticed within two intervals). The EDOPro WebSocket listener has neither.
+
+Raw TCP listeners (EDOPro, MDPro, YGO Mobile) have no application-level idle
+timeout, because those clients are legitimately silent while thinking or waiting
+on the opponent. Node only exposes the keepalive idle delay (1 s), so the probe
+interval and count come from the kernel: `docker-compose.prod.yaml` sets
+`net.ipv4.tcp_keepalive_intvl=5` and `tcp_keepalive_probes=3`, which notices a
+vanished peer in about 16 s instead of the ~11 min Linux default. Keepalive probes
+are answered by the peer's kernel, so idle-but-alive clients are unaffected. On
+other deployments set the same sysctls; the server logs a warning at boot when
+the effective detection time exceeds 60 s.
 
 ### 3.2 Framing
 
@@ -118,7 +129,7 @@ The numeric opcode (`src/shared/messages/Commands.ts`) is cast to a string and
 emitted on a plain Node `EventEmitter`. Two pumps sit on the same socket:
 
 - **Connection level** (`MessageEmitter`) re-emits a **whitelist** only:
-  `PLAYER_INFO`, `CREATE_GAME`, `JOIN_GAME`, `RECONNECT`, and the three
+  `PLAYER_INFO`, `CREATE_GAME`, `JOIN_GAME`, `RECONNECT`, and the five
   matchmaking opcodes. Handlers for `CREATE_GAME` / `JOIN_GAME` are constructed
   lazily, the first time that opcode arrives.
 - **Room level** (`RoomMessageEmitter` on EDOPro, `SimpleRoomMessageEmitter` on
@@ -211,6 +222,28 @@ participant *before* anyone is admitted, and seats socket participants
 server-side. Details belong in a future `matchmaking.md`; at this level, what
 matters is that it produces an ordinary `YGOProRoom` that the rest of the
 engine cannot distinguish from a hand-created one.
+
+**The accept step is opt-in per ticket.** A socket client that sends the
+optional trailing accept-step byte in `ENTER` (value `1`) gets a "match found"
+prompt before any room exists. When a human pair contains at least one opted-in
+participant, the pool holds the match as pending instead of provisioning it:
+both participants leave the pairing pool, opted-in ones receive
+`MATCHMAKING_PROPOSED` (`0xef`, match id plus `acceptWithinMs`), and the others
+count as already accepted. Opted-in clients answer with `MATCHMAKING_ACCEPT`
+(`0xf5`) or `MATCHMAKING_DECLINE` (`0xf4`), both carrying the match id; a
+response for an unknown or expired match, or from someone outside it, is
+rejected with STATUS reason `unknown_match`. Once everyone accepted, the match
+goes to `ProvisionMatchRoom` unchanged. A decline, a disconnect, or the 20 s
+deadline (`MATCH_ACCEPT_TIMEOUT_MS`) removes that participant from the queue,
+closing its connection with reason `declined` or `accept_timeout`, and returns
+the others to the pool with their original enqueue time, so FIFO pairs them
+first. Clients that never send the byte (MDPro4, older web builds, every HTTP
+poll ticket) and bot-fallback matches keep today's immediate seating.
+
+Lobby screens can read the live demand without joining: `GET /api/matchmaking/depth`
+returns `{ "formats": { "tcg": 3, "jtp": 0, "edison": 1 } }`, the number of
+players queued per format right now (counts only, no identities). It has its own
+rate-limit bucket (`queue-depth`, 30/min per IP) and `Cache-Control: public, max-age=5`.
 
 **WindBot joins by dialling in.** The server never pushes a bot into a room. It
 mints a one-shot token bound to `(roomId, botName, deck)`, calls the WindBot

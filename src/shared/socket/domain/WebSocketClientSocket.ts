@@ -1,13 +1,20 @@
 import WebSocket from "ws";
 
 import { ISocket } from "./ISocket";
+import {
+	SESSION_SUPERSEDED_CLOSE_CODE,
+	SESSION_SUPERSEDED_CLOSE_REASON,
+	SUPERSEDED_CLOSE_TIMEOUT_MS,
+} from "./sessionSuperseded";
 
 export class WebSocketClientSocket implements ISocket {
+	readonly transport = "ws" as const;
 	id?: string;
 	roomId?: number;
 	resolvedUserId?: string;
 	public supportsLobbyMetadata?: boolean;
 	private readonly socket: WebSocket;
+	private inboundAt = Date.now();
 	private isClosed = false;
 	private isClosing = false;
 	private messageCallback?: (data: WebSocket.Data) => void;
@@ -15,6 +22,13 @@ export class WebSocketClientSocket implements ISocket {
 
 	constructor(socket: WebSocket) {
 		this.socket = socket;
+		// Listens independently of onMessage so heartbeat pongs and frames that
+		// arrive while the pump is detached still count as proof of life.
+		const markInbound = () => {
+			this.inboundAt = Date.now();
+		};
+		this.socket.on("message", markInbound);
+		this.socket.on("pong", markInbound);
 		this.socket.on("close", () => {
 			this.isClosed = true;
 		});
@@ -68,6 +82,18 @@ export class WebSocketClientSocket implements ISocket {
 	}
 
 	closeGracefully(timeoutMs: number): void {
+		this.closeWith(timeoutMs, 1000);
+	}
+
+	closeSuperseded(): void {
+		this.closeWith(
+			SUPERSEDED_CLOSE_TIMEOUT_MS,
+			SESSION_SUPERSEDED_CLOSE_CODE,
+			SESSION_SUPERSEDED_CLOSE_REASON,
+		);
+	}
+
+	private closeWith(timeoutMs: number, code: number, reason?: string): void {
 		if (this.isClosing) return;
 		this.isClosing = true;
 		this.removeAllListeners();
@@ -77,7 +103,15 @@ export class WebSocketClientSocket implements ISocket {
 		const fallback = setTimeout(() => this.socket.terminate(), timeoutMs);
 		fallback.unref?.();
 		this.socket.once("close", () => clearTimeout(fallback));
-		this.socket.close(1000);
+		if (reason === undefined) {
+			this.socket.close(code);
+		} else {
+			this.socket.close(code, reason);
+		}
+	}
+
+	get lastInboundAt(): number {
+		return this.inboundAt;
 	}
 
 	get remoteAddress(): string | undefined {

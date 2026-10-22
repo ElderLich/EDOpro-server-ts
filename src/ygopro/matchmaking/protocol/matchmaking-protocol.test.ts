@@ -1,13 +1,22 @@
+import { MATCH_ABANDON } from "@shared/messages/server-to-client/MatchAbandonClientMessage";
+import { ACHIEVEMENT_UNLOCKED } from "src/plugins/achievements/infrastructure/AchievementUnlockedClientMessage";
+import { LOBBY_METADATA } from "@ygopro/room/domain/LobbyMetadata";
+import { STOC_EVRP_EXPORT } from "@ygopro/room/domain/replay/evrp-constants";
 import {
 	MATCHMAKING_FOUND,
+	MATCHMAKING_PROPOSED,
 	MATCHMAKING_STATUS,
+	MAX_MATCH_ID_BYTES,
 	MAX_OPPONENT_NAME_BYTES,
 	MAX_TICKET_BYTES,
+	REASON_TO_CODE,
 	buildStocMatchmakingFoundFrame,
+	buildStocMatchmakingProposedFrame,
 	buildStocMatchmakingStatusFrame,
 	parseCtosAuth,
 	parseCtosCancel,
 	parseCtosEnter,
+	parseCtosMatchResponse,
 } from "./matchmaking-protocol";
 
 function enterBody(formatCode: number, modeCode: number, clientVersion = 0): Buffer {
@@ -16,6 +25,12 @@ function enterBody(formatCode: number, modeCode: number, clientVersion = 0): Buf
 	body.writeUInt8(modeCode, 1);
 	body.writeUInt16LE(clientVersion, 2);
 	return body;
+}
+
+function enterBodyWithDelay(delayMs: number, clientVersion = 0): Buffer {
+	const delay = Buffer.alloc(4);
+	delay.writeUInt32LE(delayMs, 0);
+	return Buffer.concat([enterBody(0, 0, clientVersion), delay]);
 }
 
 function authBody(ticket: string, declaredLength = Buffer.byteLength(ticket, "utf8")): Buffer {
@@ -42,16 +57,62 @@ describe("parseCtosAuth", () => {
 });
 
 describe("parseCtosEnter", () => {
-	it("parses format, mode and clientVersion from the fixed 4-byte body", () => {
+	it("parses a 4-byte body as format, mode and clientVersion with no fallback delay", () => {
 		expect(parseCtosEnter(enterBody(1, 0, 42))).toEqual({
 			ok: true,
 			value: { format: "jtp", mode: "ranked", clientVersion: 42 },
 		});
 	});
 
-	it("rejects a body shorter or longer than the fixed 4 bytes", () => {
-		expect(parseCtosEnter(Buffer.alloc(3))).toEqual({ ok: false, reason: "malformed_frame" });
-		expect(parseCtosEnter(Buffer.alloc(5))).toEqual({ ok: false, reason: "malformed_frame" });
+	it("parses an 8-byte body, reading the trailing uint32 LE as botFallbackAfterMs", () => {
+		expect(parseCtosEnter(enterBodyWithDelay(90_000, 7))).toEqual({
+			ok: true,
+			value: { format: "tcg", mode: "ranked", clientVersion: 7, botFallbackAfterMs: 90_000 },
+		});
+	});
+
+	it("keeps the full uint32 range of botFallbackAfterMs", () => {
+		expect(parseCtosEnter(enterBodyWithDelay(0xffffffff))).toEqual({
+			ok: true,
+			value: { format: "tcg", mode: "ranked", clientVersion: 0, botFallbackAfterMs: 0xffffffff },
+		});
+	});
+
+	it("parses a 5-byte body, reading the trailing byte as the accept-step opt-in", () => {
+		expect(parseCtosEnter(Buffer.concat([enterBody(0, 0, 3), Buffer.from([1])]))).toEqual({
+			ok: true,
+			value: { format: "tcg", mode: "ranked", clientVersion: 3, supportsAcceptStep: true },
+		});
+	});
+
+	it("parses a 9-byte body as botFallbackAfterMs followed by the accept-step opt-in", () => {
+		expect(
+			parseCtosEnter(Buffer.concat([enterBodyWithDelay(60_000, 3), Buffer.from([0])])),
+		).toEqual({
+			ok: true,
+			value: {
+				format: "tcg",
+				mode: "ranked",
+				clientVersion: 3,
+				botFallbackAfterMs: 60_000,
+				supportsAcceptStep: false,
+			},
+		});
+	});
+
+	it("rejects an accept-step byte other than 0 or 1 as malformed", () => {
+		expect(parseCtosEnter(Buffer.concat([enterBody(0, 0), Buffer.from([2])]))).toEqual({
+			ok: false,
+			reason: "malformed_frame",
+		});
+		expect(parseCtosEnter(Buffer.concat([enterBodyWithDelay(0), Buffer.from([0xff])]))).toEqual({
+			ok: false,
+			reason: "malformed_frame",
+		});
+	});
+
+	it.each([0, 3, 6, 7, 10])("rejects a %i-byte body as malformed", (length) => {
+		expect(parseCtosEnter(Buffer.alloc(length))).toEqual({ ok: false, reason: "malformed_frame" });
 	});
 
 	it("rejects out-of-range format/mode bytes via the frozen code tables", () => {
@@ -60,12 +121,18 @@ describe("parseCtosEnter", () => {
 	});
 
 	it("resolves formats through a fixed code table pinned to the wire contract, not array indexing", () => {
-		const tcg = parseCtosEnter(enterBody(0, 0));
-		const jtp = parseCtosEnter(enterBody(1, 0));
-		const edison = parseCtosEnter(enterBody(2, 0));
-		expect(tcg.ok && tcg.value.format).toBe("tcg");
-		expect(jtp.ok && jtp.value.format).toBe("jtp");
-		expect(edison.ok && edison.value.format).toBe("edison");
+		expect(parseCtosEnter(enterBody(0, 0))).toEqual({
+			ok: true,
+			value: { format: "tcg", mode: "ranked", clientVersion: 0 },
+		});
+		expect(parseCtosEnter(enterBody(1, 0))).toEqual({
+			ok: true,
+			value: { format: "jtp", mode: "ranked", clientVersion: 0 },
+		});
+		expect(parseCtosEnter(enterBody(2, 0))).toEqual({
+			ok: true,
+			value: { format: "edison", mode: "ranked", clientVersion: 0 },
+		});
 	});
 });
 
@@ -73,6 +140,54 @@ describe("parseCtosCancel", () => {
 	it("accepts an empty body and rejects a non-empty one", () => {
 		expect(parseCtosCancel(Buffer.alloc(0))).toEqual({ ok: true, value: {} });
 		expect(parseCtosCancel(Buffer.from([1]))).toEqual({ ok: false, reason: "malformed_frame" });
+	});
+});
+
+describe("parseCtosMatchResponse", () => {
+	it("parses a length-prefixed match id", () => {
+		const matchId = "9d3f6b1a-1111-4c11-8a11-abcdefabcdef";
+		expect(parseCtosMatchResponse(authBody(matchId))).toEqual({ ok: true, value: { matchId } });
+	});
+
+	it("rejects an empty body, a length mismatch, an empty id and an oversized id", () => {
+		expect(parseCtosMatchResponse(Buffer.alloc(0))).toEqual({
+			ok: false,
+			reason: "malformed_frame",
+		});
+		expect(parseCtosMatchResponse(Buffer.from([5, 0x61]))).toEqual({
+			ok: false,
+			reason: "malformed_frame",
+		});
+		expect(parseCtosMatchResponse(Buffer.from([0]))).toEqual({
+			ok: false,
+			reason: "malformed_frame",
+		});
+		expect(parseCtosMatchResponse(authBody("m".repeat(MAX_MATCH_ID_BYTES + 1)))).toEqual({
+			ok: false,
+			reason: "malformed_frame",
+		});
+	});
+});
+
+describe("buildStocMatchmakingProposedFrame", () => {
+	it("lays out [size LE][0xef][matchIdLen][matchId][acceptWithinMs u32 LE]", () => {
+		const matchId = "9d3f6b1a-1111-4c11-8a11-abcdefabcdef";
+		const frame = buildStocMatchmakingProposedFrame({ matchId, acceptWithinMs: 20_000 });
+
+		expect(frame.readUInt16LE(0)).toBe(1 + 1 + matchId.length + 4);
+		expect(frame.readUInt8(2)).toBe(MATCHMAKING_PROPOSED);
+		expect(frame.readUInt8(3)).toBe(matchId.length);
+		expect(frame.subarray(4, 4 + matchId.length).toString("utf8")).toBe(matchId);
+		expect(frame.readUInt32LE(4 + matchId.length)).toBe(20_000);
+	});
+});
+
+describe("REASON_TO_CODE", () => {
+	it("appends the accept-step reasons after the existing codes", () => {
+		expect(REASON_TO_CODE.version_mismatch).toBe(14);
+		expect(REASON_TO_CODE.unknown_match).toBe(15);
+		expect(REASON_TO_CODE.declined).toBe(16);
+		expect(REASON_TO_CODE.accept_timeout).toBe(17);
 	});
 });
 
@@ -149,5 +264,18 @@ describe("buildStocMatchmakingFoundFrame", () => {
 		expect(nameLen).toBeLessThanOrEqual(MAX_OPPONENT_NAME_BYTES);
 		expect(nameLen).toBe(30); // 10 complete 3-byte characters
 		expect(nameBytes.toString("utf8")).toBe("字".repeat(10));
+	});
+});
+
+describe("server-to-client opcode allocation", () => {
+	it("gives the match proposal an opcode no other server-to-client extension uses", () => {
+		expect([
+			MATCH_ABANDON,
+			ACHIEVEMENT_UNLOCKED,
+			LOBBY_METADATA,
+			STOC_EVRP_EXPORT,
+			MATCHMAKING_STATUS,
+			MATCHMAKING_FOUND,
+		]).not.toContain(MATCHMAKING_PROPOSED);
 	});
 });
