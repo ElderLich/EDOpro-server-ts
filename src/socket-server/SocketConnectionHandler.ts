@@ -4,7 +4,7 @@ import { config } from "src/config";
 import { UserAuth } from "src/shared/user-auth/application/UserAuth";
 import { UserProfile } from "src/shared/user-profile/domain/UserProfile";
 import { Commands } from "../shared/messages/Commands";
-import { MessageEmitter } from "../edopro/MessageEmitter";
+import { MessageEmitter } from "@shared/messages/MessageEmitter";
 import { ExpressReconnectHandler } from "../shared/room/application/reconnect/ExpressReconnectHandler";
 import RoomList from "../edopro/room/infrastructure/RoomList";
 import { Client } from "../edopro/client/domain/Client";
@@ -12,10 +12,10 @@ import { GameCreatorHandler } from "../edopro/room/application/GameCreatorHandle
 import { JoinHandler } from "../edopro/room/application/JoinHandler";
 import { frameForLog } from "@shared/logger/domain/frameForLog";
 import { Logger } from "../shared/logger/domain/Logger";
-import { DisconnectHandler } from "../shared/room/application/DisconnectHandler";
+import { createDisconnectHandler } from "src/bootstrap/disconnectHandler";
 import { RoomFinder } from "../shared/room/application/RoomFinder";
 import { ISocket } from "../shared/socket/domain/ISocket";
-import { CheckIfUseCanJoin } from "src/shared/user-auth/application/CheckIfUserCanJoin";
+import { CheckIfUseCanJoin } from "@edopro/room/application/CheckIfUserCanJoin";
 
 export class SocketConnectionHandler {
 	constructor(
@@ -79,8 +79,8 @@ export class SocketConnectionHandler {
 
 		socket.onClose(() => {
 			connectionLogger.info(`roomId: ${socket.roomId} - client disconnected`);
-			const disconnectHandler = new DisconnectHandler(socket, this.roomFinder, connectionLogger);
-			disconnectHandler.run(socket.remoteAddress);
+			const disconnectHandler = createDisconnectHandler(socket, this.roomFinder, connectionLogger);
+			disconnectHandler.run();
 		});
 	}
 }
