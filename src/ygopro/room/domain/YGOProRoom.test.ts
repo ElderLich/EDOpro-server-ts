@@ -9,6 +9,13 @@ import YGOProBanListMemoryRepository from "@ygopro/ban-list/infrastructure/YGOPr
 import { YGOProBanList } from "@ygopro/ban-list/domain/YGOProBanList";
 import BanListMemoryRepository from "@edopro/ban-list/infrastructure/BanListMemoryRepository";
 import { EdoproBanList } from "@edopro/ban-list/domain/BanList";
+import { Card } from "@shared/card/domain/Card";
+import { CardTypes } from "@shared/card/domain/CardTypes";
+import { Deck } from "@shared/deck/domain/Deck";
+import { OCGCardError } from "@shared/deck/domain/errors/OCGCardError";
+import { Rule } from "@shared/deck/domain/Rule";
+import { YGOProRule } from "./host-info/YGOProRule";
+import { formatRuleMappings } from "./RuleMappings";
 import { YGOProRoom } from "./YGOProRoom";
 import { DEFAULT_POOL, EXTENDED_POOL, RUSH_POOL } from "src/ygopro/ygopro/PoolSelection";
 import { LoggerMock } from "@test-support/mocks/logger/LoggerMock";
@@ -161,6 +168,17 @@ describe("YGOProRoom", () => {
 	it("Should create a room with deck shuffling if ns param is not send", () => {
 		const room = YGOProRoomMother.create({ command: "mr2,m#123" });
 		expect(room.hostInfo.no_shuffle_deck).toBe(0);
+	});
+
+	it("creates a room with TCG SEGOC rulings when the tcgsegoc param is sent", () => {
+		const room = YGOProRoomMother.create({ command: "tcg,TCGSEGOC#123" });
+		expect(room.hostInfo.tcg_segoc_nonpublic).toBe(1);
+		expect(room.hostInfo.rule).toBe(5);
+	});
+
+	it("creates a room with OCG SEGOC rulings when the tcgsegoc param is not sent", () => {
+		const room = YGOProRoomMother.create({ command: "tcg#123" });
+		expect(room.hostInfo.tcg_segoc_nonpublic).toBe(0);
 	});
 
 	it("Should create a room without deck checking if nc param is send", () => {
@@ -398,33 +416,33 @@ describe("YGOProRoom", () => {
 			expect(room.cardPool).toBe(EXTENDED_POOL);
 		});
 
-		it("Should create a tcgpre room with rule 5 (no scope restriction) and extended card pool", () => {
+		it("Should create a tcgpre room limited to TCG cards on the extended card pool", () => {
 			const room = YGOProRoomMother.create({ command: "tcgpre,tm800#123" });
-			expect(room.hostInfo.rule).toBe(5);
+			expect(room.hostInfo.rule).toBe(1);
 			expect(room.hostInfo.duel_rule).toBe(5);
 			expect(room.hostInfo.time_limit).toBe(800);
 			expect(room.cardPool).toBe(EXTENDED_POOL);
 		});
 
-		it("Should create an ocgpre room with rule 5 (no scope restriction) and extended card pool", () => {
+		it("Should create an ocgpre room limited to OCG cards on the extended card pool", () => {
 			const room = YGOProRoomMother.create({ command: "ocgpre#123" });
-			expect(room.hostInfo.rule).toBe(5);
+			expect(room.hostInfo.rule).toBe(0);
 			expect(room.hostInfo.lflist).toBe(0);
 			expect(room.hostInfo.duel_rule).toBe(5);
 			expect(room.cardPool).toBe(EXTENDED_POOL);
 		});
 
-		it("Should create a tcgart room with rule 5 (no scope restriction) and extended card pool", () => {
+		it("Should create a tcgart room limited to TCG cards on the extended card pool", () => {
 			const room = YGOProRoomMother.create({ command: "tcgart,tm800#123" });
-			expect(room.hostInfo.rule).toBe(5);
+			expect(room.hostInfo.rule).toBe(1);
 			expect(room.hostInfo.duel_rule).toBe(5);
 			expect(room.hostInfo.time_limit).toBe(800);
 			expect(room.cardPool).toBe(EXTENDED_POOL);
 		});
 
-		it("Should create an ocgart room with rule 5 (no scope restriction) and extended card pool", () => {
+		it("Should create an ocgart room limited to OCG cards on the extended card pool", () => {
 			const room = YGOProRoomMother.create({ command: "ocgart#123" });
-			expect(room.hostInfo.rule).toBe(5);
+			expect(room.hostInfo.rule).toBe(0);
 			expect(room.hostInfo.lflist).toBe(0);
 			expect(room.hostInfo.duel_rule).toBe(5);
 			expect(room.cardPool).toBe(EXTENDED_POOL);
@@ -441,13 +459,59 @@ describe("YGOProRoom", () => {
 		});
 	});
 
+	describe("card-pool rule wiring", () => {
+		afterEach(() => {
+			jest.restoreAllMocks();
+		});
+
+		it("validates decks with the room's YGOPro rule and keeps the EDOPro rule in DeckRules", () => {
+			jest.spyOn(formatRuleMappings.ocg, "get").mockReturnValue({ rule: YGOProRule.CUSTOM });
+			const room = YGOProRoomMother.create({ command: "ocg#123" });
+			const deckRules = room["_deckRules"];
+			const officialCards = Array.from(
+				{ length: 40 },
+				(_, index) =>
+					new Card({
+						alias: "0",
+						code: String(300 + index),
+						type: CardTypes.TYPE_MONSTER,
+						category: 0,
+						variant: 0x3,
+					}),
+			);
+			const deck = new Deck({ main: officialCards, banList: new EdoproBanList(), deckRules });
+
+			expect(room.hostInfo.rule).toBe(YGOProRule.CUSTOM);
+			expect(deckRules.rule).toBe(Rule.ALL);
+			expect(room["createDeckValidator"]().validate(deck)).toBeInstanceOf(OCGCardError);
+		});
+	});
+
+	describe("room list presentation", () => {
+		it("reports the Mercury all-cards rule as the EDOPro anything-goes rule", () => {
+			const room = YGOProRoomMother.create({ command: "pre#123" });
+			expect(room.hostInfo.rule).toBe(5);
+			expect(room.toPresentation().rule).toBe(4);
+		});
+
+		it("keeps the OCG-only and TCG-only rules, which both numberings share", () => {
+			expect(YGOProRoomMother.create({ command: "oo#123" }).toPresentation().rule).toBe(0);
+			expect(YGOProRoomMother.create({ command: "to#123" }).toPresentation().rule).toBe(1);
+		});
+	});
+
 	describe("JTP Format", () => {
-		it("Should create a jtp room with rule 5, duel_rule 2 and start hand 5", () => {
+		it("Should create a jtp room with rule 5, duel_rule 1 and start hand 5", () => {
 			const room = YGOProRoomMother.create({ command: "jtp,st5#123" });
 			expect(room.hostInfo.rule).toBe(5);
-			expect(room.hostInfo.duel_rule).toBe(2);
+			expect(room.hostInfo.duel_rule).toBe(1);
 			expect(room.hostInfo.start_hand).toBe(5);
 			expect(room.cardPool).toBe(DEFAULT_POOL);
+		});
+
+		it("plays the advanced 2007-03 list and the match variant under master rule 1", () => {
+			expect(YGOProRoomMother.create({ command: "jtp-2007-03#123" }).hostInfo.duel_rule).toBe(1);
+			expect(YGOProRoomMother.create({ command: "jm#123" }).hostInfo.duel_rule).toBe(1);
 		});
 	});
 
@@ -457,16 +521,6 @@ describe("YGOProRoom", () => {
 			expect(room.hostInfo.rule).toBe(5);
 			expect(room.hostInfo.duel_rule).toBe(2);
 			expect(room.hostInfo.mode).toBe(GameMode.MATCH);
-			expect(room.cardPool).toBe(DEFAULT_POOL);
-		});
-	});
-
-	describe("HAT Format", () => {
-		it("Should create a hat room with rule 5, duel_rule 2 and time_limit 450", () => {
-			const room = YGOProRoomMother.create({ command: "hat#123" });
-			expect(room.hostInfo.rule).toBe(5);
-			expect(room.hostInfo.duel_rule).toBe(2);
-			expect(room.hostInfo.time_limit).toBe(450);
 			expect(room.cardPool).toBe(DEFAULT_POOL);
 		});
 	});
@@ -540,23 +594,13 @@ describe("YGOProRoom", () => {
 		});
 	});
 
-	describe("GX Format", () => {
-		it("Should create a gx room with rule 5, duel_rule 1 and time limit 500", () => {
-			const room = YGOProRoomMother.create({ command: "gx,tm500#123" });
-			expect(room.hostInfo.rule).toBe(5);
-			expect(room.hostInfo.duel_rule).toBe(1);
-			expect(room.hostInfo.time_limit).toBe(500);
-			expect(room.cardPool).toBe(DEFAULT_POOL);
-		});
-	});
+	describe("unserved formats", () => {
+		it("opens a default room for a removed format token", () => {
+			const defaults = YGOProRoomMother.create({ command: "#123" }).hostInfo;
 
-	describe("Goat Format", () => {
-		it("Should create a room with Goat format if command contains goat", () => {
-			const room = YGOProRoomMother.create({ command: "goat#123" });
-			expect(room.hostInfo.rule).toBe(5);
-			expect(room.hostInfo.lflist).toBe(0);
-			expect(room.hostInfo.time_limit).toBe(450);
-			expect(room.hostInfo.duel_rule).toBe(4);
+			for (const token of ["goat", "hat", "gx", "mdc", "speed"]) {
+				expect(YGOProRoomMother.create({ command: `${token}#123` }).hostInfo).toEqual(defaults);
+			}
 		});
 	});
 

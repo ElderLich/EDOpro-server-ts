@@ -38,6 +38,7 @@ import { YGOProSideDeckingState } from "./states/YGOProSideDeckingState";
 import { YGOProWaitingState } from "./states/YGOProWaitingState";
 import { HostInfo } from "./host-info/HostInfo";
 import { getLobbyDuelInfo } from "./LobbyDuelFlags";
+import { toEdoproRule, ygoproRuleLabel } from "./host-info/YGOProRule";
 
 import {
 	ChatColor,
@@ -171,7 +172,7 @@ export class YGOProRoom extends YgoRoom {
 			extraMax: 15,
 			sideMin: 0,
 			sideMax: 15,
-			rule: this._hostInfo.rule,
+			rule: toEdoproRule(this._hostInfo.rule),
 			maxDeckPoints: this._hostInfo.max_deck_points,
 		});
 		const banList = MercuryBanListMemoryRepository.findByHash(banListHash);
@@ -202,6 +203,7 @@ export class YGOProRoom extends YgoRoom {
 			time_limit: 450,
 			max_deck_points: 100,
 			best_of: BEST_OF[GameMode.SINGLE],
+			tcg_segoc_nonpublic: 0,
 		};
 
 		const [configuration, password = ""] = command.split("#");
@@ -946,7 +948,11 @@ export class YGOProRoom extends YgoRoom {
 	private createDeckValidator(): YGOProDeckValidator {
 		const banList = MercuryBanListMemoryRepository.findByHash(this.banListHash);
 
-		return new YGOProDeckValidator(this._deckRules, banList ?? new YGOProBanList());
+		return new YGOProDeckValidator(
+			this._deckRules,
+			banList ?? new YGOProBanList(),
+			this._hostInfo.rule,
+		);
 	}
 
 	toPresentation(): { [key: string]: unknown } {
@@ -968,7 +974,7 @@ export class YGOProRoom extends YgoRoom {
 			start_hand: this._hostInfo.start_hand,
 			draw_count: this._hostInfo.draw_count,
 			time_limit: this._hostInfo.time_limit,
-			rule: this._hostInfo.rule,
+			rule: toEdoproRule(this._hostInfo.rule),
 			no_check: Boolean(this._hostInfo.no_check_deck),
 			no_shuffle: Boolean(this._hostInfo.no_shuffle_deck),
 			banlist_hash: this._edoBanListHash ?? this.banListHash,
@@ -987,15 +993,6 @@ export class YGOProRoom extends YgoRoom {
 	}
 
 	toRoomListDTO(): { [key: string]: unknown } {
-		const RULE_LABELS: Record<number, string> = {
-			0: "OCG",
-			1: "TCG",
-			2: "OCG/TCG",
-			3: "Pre-release",
-			4: "Anything Goes",
-			5: "Anything Goes",
-		};
-
 		const started = this.duelState !== DuelState.WAITING;
 		const maxPlayers = this.team0 + this.team1;
 		const banList = MercuryBanListMemoryRepository.findByHash(this.banListHash);
@@ -1010,7 +1007,7 @@ export class YGOProRoom extends YgoRoom {
 			canPlay: !started && this._players.length < maxPlayers,
 			canWatch: true,
 			banlist: banList?.name ?? "No banlist",
-			rule: RULE_LABELS[this._hostInfo.rule] ?? "Anything Goes",
+			rule: ygoproRuleLabel(this._hostInfo.rule),
 			mode: this._hostInfo.mode,
 			bestOf: this.bestOf,
 			duelRule: this._hostInfo.duel_rule,
