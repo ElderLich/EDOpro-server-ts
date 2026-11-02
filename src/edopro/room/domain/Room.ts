@@ -23,6 +23,7 @@ import { JSONMessageProcessor } from "../../messages/JSONMessageProcessor";
 import { MessageProcessor } from "../../../shared/messages/MessageProcessor";
 import { Replay } from "../../replay/Replay";
 import { RoomMessageEmitter } from "../../RoomMessageEmitter";
+import { AuthenticatePlayer } from "../application/AuthenticatePlayer";
 import { FinishDuelHandler } from "../application/FinishDuelHandler";
 import { JoinToDuelAsSpectator } from "../application/JoinToDuelAsSpectator";
 import { Reconnect } from "../application/Reconnect";
@@ -30,7 +31,7 @@ import RoomList from "../infrastructure/RoomList";
 import { DuelFinishReason } from "./DuelFinishReason";
 import { PlayerRoomState } from "./PlayerRoomState";
 import { RoomClientNotifier } from "./RoomClientNotifier";
-import { RoomState } from "./RoomState";
+import { RoomState } from "../../../shared/room/domain/RoomState";
 import { ChossingOrderState } from "./states/chossing-order/ChossingOrderState";
 import { DuelingState } from "./states/dueling/DuelingState";
 import { RockPaperScissorState } from "./states/rps/RockPaperScissorsState";
@@ -565,7 +566,7 @@ export class Room extends YgoRoom {
 		this.roomState = new WaitingState(
 			this.emitter,
 			this.logger,
-			new UserAuth(new UserProfilePostgresRepository()),
+			new AuthenticatePlayer(new UserAuth(new UserProfilePostgresRepository())),
 			new DeckCreator(new CardSQLiteTYpeORMRepository(), this.deckRules, this.duelFlag),
 		);
 	}
@@ -581,6 +582,7 @@ export class Room extends YgoRoom {
 			new JoinToDuelAsSpectator(),
 			this,
 			new JSONMessageProcessor(),
+			(params) => new FinishDuelHandler(params).run(),
 		);
 	}
 

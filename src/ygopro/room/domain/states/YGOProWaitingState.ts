@@ -7,7 +7,7 @@ import { ClientMessage } from "@shared/messages/MessageProcessor";
 import { YgoClient } from "@shared/client/domain/YgoClient";
 import { Logger } from "@shared/logger/domain/Logger";
 import { ISocket } from "@shared/socket/domain/ISocket";
-import { ReconnectionTokenIssuer } from "@shared/room/application/reconnect/ReconnectionTokenIssuer";
+import { ReconnectionTokenIssuer } from "@shared/room/domain/reconnect/ReconnectionTokenIssuer";
 import { Admission } from "@shared/room/admission/domain/Admission";
 import { isNameTaken } from "@shared/room/domain/isNameTaken";
 import { createSystemChat } from "@shared/room/domain/chat/SystemChat";
@@ -23,7 +23,6 @@ import { YGOProDeckValidator } from "@ygopro/deck/domain/YGOProDeckValidator";
 import { DeckError } from "@shared/deck/domain/errors/DeckError";
 import { encodeDeckErrorCode } from "@shared/deck/domain/errors/encodeDeckErrorCode";
 import { YGOProRoomState } from "../YGOProRoomState";
-import MercuryBanListMemoryRepository from "@ygopro/ban-list/infrastructure/YGOProBanListMemoryRepository";
 import { mercuryConfig } from "@ygopro/config";
 import { config } from "../../../../config";
 import { YGOProJoinGameMessage } from "@ygopro/messages/YGOProJoinGameMessage";
@@ -185,11 +184,8 @@ export class YGOProWaitingState extends YGOProRoomState {
 	 * global uncaughtException hook (src/shared/error-handler/error-handler.ts),
 	 * which logs a routine client-version mismatch as "Excepción no capturada" — and
 	 * because nothing after the throw ran, the rejected socket stayed open as a
-	 * live-but-rejected connection. Encoding was never the problem here:
-	 * VersionErrorClientMessage.create is byte-identical to the ygopro frame
-	 * (its `decimalToBytesBuffer(0, 3)` already covers STOC_ErrorMsg's alignment
-	 * padding). We go through the ygopro repository anyway, so the ygopro path owns
-	 * its own wire format instead of borrowing EDOPro's.
+	 * live-but-rejected connection. The error frame goes through the ygopro message
+	 * sender, so the ygopro path owns its own wire format instead of borrowing EDOPro's.
 	 */
 	private rejectOnVersionMismatch(data: Buffer, room: YGOProRoom, socket: ISocket): boolean {
 		const joinMessage = new YGOProJoinGameMessage(data);
@@ -273,6 +269,7 @@ export class YGOProWaitingState extends YGOProRoomState {
 
 		this.toRPS(room);
 		room.createMatch();
+		this.notifyMatchStarting(room);
 		room.rps();
 	}
 

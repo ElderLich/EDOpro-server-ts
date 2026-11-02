@@ -1,3 +1,4 @@
+import { FinishDuel, PlayerReconnector, SpectatorJoiner } from "../../RoomStatePorts";
 import BanListMemoryRepository from "@edopro/ban-list/infrastructure/BanListMemoryRepository";
 import { spawn } from "child_process";
 import * as crypto from "crypto";
@@ -12,7 +13,7 @@ import { createSystemChat } from "../../../../../shared/room/domain/chat/SystemC
 import { ISocket } from "../../../../../shared/socket/domain/ISocket";
 import { decimalToBytesBuffer } from "../../../../../utils";
 import { Client } from "../../../../client/domain/Client";
-import { UpdateDeckMessageParser } from "../../../../deck/application/UpdateDeckMessageSizeCalculator";
+import { UpdateDeckMessageParser } from "../../../../deck/domain/UpdateDeckMessageSizeCalculator";
 import { JoinGameMessage } from "../../../../messages/client-to-server/JoinGameMessage";
 import { PlayerInfoMessage } from "@shared/messages/client-to-server/PlayerInfoMessage";
 import { Commands } from "../../../../../shared/messages/Commands";
@@ -25,16 +26,13 @@ import { StartDuelClientMessage } from "../../../../messages/server-to-client/ga
 import { TimeLimitClientMessage } from "../../../../messages/server-to-client/game-messages/TimeLimitClientMessage";
 import { CatchUpClientMessage } from "../../../../messages/server-to-client/CatchUpClientMessage";
 import { PlayerChangeClientMessage } from "../../../../messages/server-to-client/PlayerChangeClientMessage";
-import { ReconnectionTokenIssuer } from "../../../../../shared/room/application/reconnect/ReconnectionTokenIssuer";
+import { ReconnectionTokenIssuer } from "../../../../../shared/room/domain/reconnect/ReconnectionTokenIssuer";
 import { findReconnectingPlayer } from "../../../../../shared/room/domain/findReconnectingPlayer";
 import { ReconnectionAckMessage } from "../../../../../shared/messages/server-to-client/ReconnectionAckMessage";
-import { FinishDuelHandler } from "../../../application/FinishDuelHandler";
-import { JoinToDuelAsSpectator } from "../../../application/JoinToDuelAsSpectator";
-import { Reconnect } from "../../../application/Reconnect";
 import { DuelFinishReason } from "../../DuelFinishReason";
 import { Room } from "../../Room";
-import { RoomState } from "../../RoomState";
-import { logReconnectAttempt } from "@shared/room/application/reconnect/logReconnectAttempt";
+import { EdoproRoomState } from "../../EdoproRoomState";
+import { logReconnectAttempt } from "@shared/room/domain/reconnect/logReconnectAttempt";
 import { redactSecret } from "@shared/logger/domain/redactSecret";
 
 interface Message {
@@ -101,16 +99,17 @@ type SwapMessage = {
 // Shared by both deck-mismatch checks in handleUpdateDeck below.
 const RECONNECT_SAME_DECK_MESSAGE = "Reconnect with the same deck you were using in this match.";
 
-export class DuelingState extends RoomState {
+export class DuelingState extends EdoproRoomState {
 	private static readonly MAX_MESSAGES_PER_TICK = 1000;
 
 	constructor(
 		eventEmitter: EventEmitter,
 		private readonly logger: Logger,
-		private readonly reconnect: Reconnect,
-		private readonly joinToDuelAsSpectator: JoinToDuelAsSpectator,
+		private readonly reconnect: PlayerReconnector,
+		private readonly joinToDuelAsSpectator: SpectatorJoiner,
 		private readonly room: Room,
 		private readonly jsonMessageProcessor: JSONMessageProcessor,
+		private readonly finishDuel: FinishDuel,
 	) {
 		super(eventEmitter);
 
@@ -454,12 +453,7 @@ export class DuelingState extends RoomState {
 		);
 
 		this.room.finished();
-		const duelFinisher = new FinishDuelHandler({
-			reason,
-			winner,
-			room: this.room,
-		});
-		void duelFinisher.run();
+		void this.finishDuel({ reason, winner, room: this.room });
 	}
 
 	private handleCoreTime(payload: TimeMessage) {
@@ -759,13 +753,11 @@ export class DuelingState extends RoomState {
 			}),
 		);
 
-		const finishDuelHandler = new FinishDuelHandler({
+		void this.finishDuel({
 			reason: DuelFinishReason.SURRENDERED,
 			winner: Number(!player.team),
 			room: this.room,
 		});
-
-		void finishDuelHandler.run();
 	}
 
 	private handleResponse(message: ClientMessage, player: Client): void {

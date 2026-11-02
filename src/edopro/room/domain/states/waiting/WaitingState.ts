@@ -1,5 +1,4 @@
-import { AuthenticatePlayer } from "@edopro/room/application/AuthenticatePlayer";
-import { UserAuth } from "src/shared/user-auth/application/UserAuth";
+import { DeckBuilder, PlayerAuthenticator } from "../../RoomStatePorts";
 import { EventEmitter } from "stream";
 
 import { ChatColor } from "ygopro-msg-encode";
@@ -8,8 +7,7 @@ import { Logger } from "../../../../../shared/logger/domain/Logger";
 import { DuelStartClientMessage } from "../../../../../shared/messages/server-to-client/DuelStartClientMessage";
 import { ISocket } from "../../../../../shared/socket/domain/ISocket";
 import { Client } from "../../../../client/domain/Client";
-import { DeckCreator } from "../../../../deck/application/DeckCreator";
-import { UpdateDeckMessageParser } from "../../../../deck/application/UpdateDeckMessageSizeCalculator";
+import { UpdateDeckMessageParser } from "../../../../deck/domain/UpdateDeckMessageSizeCalculator";
 import { JoinGameMessage } from "../../../../messages/client-to-server/JoinGameMessage";
 import { PlayerInfoMessage } from "@shared/messages/client-to-server/PlayerInfoMessage";
 import { Commands } from "../../../../../shared/messages/Commands";
@@ -19,17 +17,17 @@ import { ErrorClientMessage } from "../../../../messages/server-to-client/ErrorC
 import { JoinGameClientMessage } from "../../../../messages/server-to-client/JoinGameClientMessage";
 import { RPSChooseClientMessage } from "../../../../messages/server-to-client/RPSChooseClientMessage";
 import { createSystemChat } from "../../../../../shared/room/domain/chat/SystemChat";
-import { ReconnectionTokenIssuer } from "../../../../../shared/room/application/reconnect/ReconnectionTokenIssuer";
+import { ReconnectionTokenIssuer } from "../../../../../shared/room/domain/reconnect/ReconnectionTokenIssuer";
 import { isNameTaken } from "../../../../../shared/room/domain/isNameTaken";
 import { Room } from "../../Room";
-import { RoomState } from "../../RoomState";
+import { EdoproRoomState } from "../../EdoproRoomState";
 
-export class WaitingState extends RoomState {
+export class WaitingState extends EdoproRoomState {
 	constructor(
 		eventEmitter: EventEmitter,
 		private readonly logger: Logger,
-		private readonly userAuth: UserAuth,
-		private readonly deckCreator: DeckCreator,
+		private readonly authenticatePlayer: PlayerAuthenticator,
+		private readonly deckCreator: DeckBuilder,
 	) {
 		super(eventEmitter);
 		this.logger = this.logger.child({ file: "WaitingState" });
@@ -272,7 +270,7 @@ export class WaitingState extends RoomState {
 			let userId: string | null = null;
 
 			if (room.ranked) {
-				const user = await new AuthenticatePlayer(this.userAuth).run(playerInfoMessage, socket);
+				const user = await this.authenticatePlayer.run(playerInfoMessage, socket);
 
 				if (!user) {
 					socket.send(ErrorClientMessage.create(ErrorMessages.JOIN_ERROR));

@@ -1,3 +1,4 @@
+import { PlayerReconnector, SpectatorJoiner } from "../../RoomStatePorts";
 import EventEmitter from "events";
 
 import { Logger } from "../../../../../shared/logger/domain/Logger";
@@ -9,23 +10,21 @@ import { PlayerInfoMessage } from "@shared/messages/client-to-server/PlayerInfoM
 import { Commands } from "../../../../../shared/messages/Commands";
 import { ClientMessage } from "../../../../../shared/messages/MessageProcessor";
 import { RPSChooseClientMessage } from "../../../../messages/server-to-client/RPSChooseClientMessage";
-import { JoinToDuelAsSpectator } from "../../../application/JoinToDuelAsSpectator";
-import { Reconnect } from "../../../application/Reconnect";
 import { Room } from "../../Room";
-import { RoomState } from "../../RoomState";
+import { EdoproRoomState } from "../../EdoproRoomState";
 import { RpsChoiceCommandStrategy } from "./RpsChoiceCommandStrategy";
-import { ReconnectionTokenIssuer } from "../../../../../shared/room/application/reconnect/ReconnectionTokenIssuer";
+import { ReconnectionTokenIssuer } from "../../../../../shared/room/domain/reconnect/ReconnectionTokenIssuer";
 import { findReconnectingPlayer } from "../../../../../shared/room/domain/findReconnectingPlayer";
 import { ReconnectionAckMessage } from "../../../../../shared/messages/server-to-client/ReconnectionAckMessage";
-import { logReconnectAttempt } from "@shared/room/application/reconnect/logReconnectAttempt";
+import { logReconnectAttempt } from "@shared/room/domain/reconnect/logReconnectAttempt";
 import { redactSecret } from "@shared/logger/domain/redactSecret";
 
-export class RockPaperScissorState extends RoomState {
+export class RockPaperScissorState extends EdoproRoomState {
 	constructor(
 		eventEmitter: EventEmitter,
 		private readonly logger: Logger,
-		private readonly reconnect: Reconnect,
-		private readonly joinToDuelAsSpectator: JoinToDuelAsSpectator,
+		private readonly reconnect: PlayerReconnector,
+		private readonly joinToDuelAsSpectator: SpectatorJoiner,
 	) {
 		super(eventEmitter);
 
