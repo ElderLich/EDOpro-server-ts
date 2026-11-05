@@ -1,5 +1,5 @@
-import MercuryBanListMemoryRepository from "../../ban-list/infrastructure/YGOProBanListMemoryRepository";
-import LoggerFactory from "src/shared/logger/infrastructure/LoggerFactory";
+import { ygoproBanListCatalog } from "../../ban-list/domain/YGOProBanListCatalog";
+import { ruleMappingsLogger } from "./ruleMappingsLogger";
 import { GameMode } from "ygopro-msg-encode";
 import { HostInfo } from "./host-info/HostInfo";
 import { DEFAULT_POOL, EXTENDED_POOL, RUSH_POOL } from "src/ygopro/ygopro/PoolSelection";
@@ -32,11 +32,11 @@ const aliasesWarnedAsMissing = new Set<string>();
  * room with whichever list sits at `fallback` (index 0 by default).
  */
 function resolveAliasIndex(alias: string, fallback = 0): number {
-	const index = MercuryBanListMemoryRepository.findIndexByAlias(alias);
+	const index = ygoproBanListCatalog().findIndexByAlias(alias);
 	if (index === -1) {
 		if (!aliasesWarnedAsMissing.has(alias)) {
 			aliasesWarnedAsMissing.add(alias);
-			LoggerFactory.getLogger().warn(
+			ruleMappingsLogger().warn(
 				`RuleMappings: banlist alias "${alias}" has no matching banlist loaded — falling back to index ${fallback}. The room will be labeled with whatever list sits there.`,
 			);
 		}
@@ -178,7 +178,7 @@ export const priorityRuleMappings: RuleMappings = {
 	},
 	// OCG with TCG and OCG cards allowed
 	otto: {
-		get: () => ({ rule: 5, lflist: MercuryBanListMemoryRepository.getFirstOCGIndex() }),
+		get: () => ({ rule: 5, lflist: ygoproBanListCatalog().getFirstOCGIndex() }),
 		validate: (value) => {
 			return value === "otto";
 		},
@@ -190,7 +190,7 @@ export const priorityRuleMappings: RuleMappings = {
 		get: () => {
 			return {
 				rule: 5,
-				lflist: MercuryBanListMemoryRepository.getNewestTCGIndex(),
+				lflist: ygoproBanListCatalog().getNewestTCGIndex(),
 			};
 		},
 		validate: (value) => {
@@ -217,6 +217,17 @@ export const priorityRuleMappings: RuleMappings = {
 		},
 		validate: (value) => {
 			return value === "tcgsegoc";
+		},
+	},
+
+	goat2005: {
+		get: () => {
+			return {
+				goat_2005: 1,
+			};
+		},
+		validate: (value) => {
+			return value === "goat2005";
 		},
 	},
 
@@ -301,7 +312,7 @@ export const priorityRuleMappings: RuleMappings = {
 		get: () => {
 			return {
 				rule: 1,
-				lflist: MercuryBanListMemoryRepository.getNewestTCGIndex(),
+				lflist: ygoproBanListCatalog().getNewestTCGIndex(),
 			};
 		},
 		validate: (value) => {
@@ -321,7 +332,7 @@ export const priorityRuleMappings: RuleMappings = {
 				return { lflist: numericIndex - 1 };
 			}
 
-			const aliasIndex = MercuryBanListMemoryRepository.findIndexByAlias(query);
+			const aliasIndex = ygoproBanListCatalog().findIndexByAlias(query);
 
 			if (aliasIndex !== -1) {
 				return { lflist: aliasIndex };
@@ -351,7 +362,7 @@ export const priorityRuleMappings: RuleMappings = {
 		get: () => {
 			return {
 				rule: 0,
-				lflist: MercuryBanListMemoryRepository.getFirstOCGIndex(),
+				lflist: ygoproBanListCatalog().getFirstOCGIndex(),
 			};
 		},
 		validate: (value) => {
@@ -363,7 +374,7 @@ export const priorityRuleMappings: RuleMappings = {
 		get: () => {
 			return {
 				rule: 5,
-				lflist: MercuryBanListMemoryRepository.getFirstOCGIndex(),
+				lflist: ygoproBanListCatalog().getFirstOCGIndex(),
 			};
 		},
 		validate: (value) => {
@@ -375,7 +386,7 @@ export const priorityRuleMappings: RuleMappings = {
 		get: () => {
 			return {
 				rule: 5,
-				lflist: MercuryBanListMemoryRepository.getNewestTCGIndex(),
+				lflist: ygoproBanListCatalog().getNewestTCGIndex(),
 			};
 		},
 		validate: (value) => {
@@ -387,7 +398,7 @@ export const priorityRuleMappings: RuleMappings = {
 		get: () => {
 			return {
 				rule: 0,
-				lflist: MercuryBanListMemoryRepository.getFirstOCGIndex(),
+				lflist: ygoproBanListCatalog().getFirstOCGIndex(),
 				mode: GameMode.MATCH,
 				best_of: 3,
 			};
@@ -401,7 +412,7 @@ export const priorityRuleMappings: RuleMappings = {
 		get: () => {
 			return {
 				rule: 5,
-				lflist: MercuryBanListMemoryRepository.getFirstOCGIndex(),
+				lflist: ygoproBanListCatalog().getFirstOCGIndex(),
 				mode: GameMode.MATCH,
 				best_of: 3,
 			};
@@ -415,7 +426,7 @@ export const priorityRuleMappings: RuleMappings = {
 		get: () => {
 			return {
 				rule: 1,
-				lflist: MercuryBanListMemoryRepository.getNewestTCGIndex(),
+				lflist: ygoproBanListCatalog().getNewestTCGIndex(),
 				mode: GameMode.MATCH,
 				best_of: 3,
 			};
@@ -429,7 +440,7 @@ export const priorityRuleMappings: RuleMappings = {
 		get: () => {
 			return {
 				rule: 5,
-				lflist: MercuryBanListMemoryRepository.getNewestTCGIndex(),
+				lflist: ygoproBanListCatalog().getNewestTCGIndex(),
 				mode: GameMode.MATCH,
 				best_of: 3,
 			};
@@ -449,7 +460,31 @@ const edisonRuleSet = () => ({
 	time_limit: 450,
 });
 
+// Goat Format (TCG, April 2005 list, pool to 2005-08-17): master rule 1 plus the
+// fork core's Goat 2005 rulings (DUEL_GOAT_2005), see docs/join-commands.md.
+const goatRuleSet = () => ({
+	rule: 5,
+	lflist: resolveAliasIndex("goat"),
+	duel_rule: 1,
+	goat_2005: 1,
+	time_limit: 450,
+});
+
 export const formatRuleMappings: RuleMappings = {
+	goat: {
+		get: goatRuleSet,
+		validate: (value) => {
+			return value === "goat";
+		},
+	},
+	// "gt" is the short alias of "goat" for AI join passwords (same 20-char
+	// ceiling as "ed" below).
+	gt: {
+		get: goatRuleSet,
+		validate: (value) => {
+			return value === "gt";
+		},
+	},
 	edison: {
 		get: edisonRuleSet,
 		validate: (value) => {
@@ -559,7 +594,7 @@ export const formatRuleMappings: RuleMappings = {
 				max_deck_points = 100;
 			}
 
-			const genesysIndex = MercuryBanListMemoryRepository.findIndexByAlias("genesys");
+			const genesysIndex = ygoproBanListCatalog().findIndexByAlias("genesys");
 			if (genesysIndex === -1) {
 				throw new Error("Genesys ban list is not loaded");
 			}
@@ -581,7 +616,7 @@ export const formatRuleMappings: RuleMappings = {
 	},
 	rush: {
 		get: () => {
-			const index = MercuryBanListMemoryRepository.findIndexByAlias("rush");
+			const index = ygoproBanListCatalog().findIndexByAlias("rush");
 			return {
 				rule: 5,
 				lflist: index !== -1 ? index : 2,
@@ -602,7 +637,7 @@ export const formatRuleMappings: RuleMappings = {
 	},
 	rushpre: {
 		get: () => {
-			const index = MercuryBanListMemoryRepository.findIndexByAlias("rush");
+			const index = ygoproBanListCatalog().findIndexByAlias("rush");
 			return {
 				rule: 5,
 				lflist: index !== -1 ? index : 2,
@@ -615,7 +650,7 @@ export const formatRuleMappings: RuleMappings = {
 	},
 	world: {
 		get: () => {
-			const index = MercuryBanListMemoryRepository.findIndexByAlias("world");
+			const index = ygoproBanListCatalog().findIndexByAlias("world");
 			return {
 				rule: 5,
 				lflist: index !== -1 ? index : 5,
@@ -642,7 +677,7 @@ export const formatRuleMappings: RuleMappings = {
 		get: () => {
 			return {
 				rule: 0,
-				lflist: MercuryBanListMemoryRepository.getFirstOCGIndex(),
+				lflist: ygoproBanListCatalog().getFirstOCGIndex(),
 				time_limit: 450,
 			};
 		},
@@ -667,7 +702,7 @@ export const formatRuleMappings: RuleMappings = {
 			return {
 				rule: 0,
 				duel_rule: 5,
-				lflist: MercuryBanListMemoryRepository.getFirstOCGIndex(),
+				lflist: ygoproBanListCatalog().getFirstOCGIndex(),
 				time_limit: 450,
 			};
 		},
@@ -700,7 +735,7 @@ export const formatRuleMappings: RuleMappings = {
 			return {
 				rule: 0,
 				duel_rule: 5,
-				lflist: MercuryBanListMemoryRepository.getFirstOCGIndex(),
+				lflist: ygoproBanListCatalog().getFirstOCGIndex(),
 				time_limit: 450,
 			};
 		},

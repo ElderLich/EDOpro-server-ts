@@ -1,16 +1,19 @@
 import "reflect-metadata";
 import "src/shared/error-handler/error-handler";
 
-import { checkTcpKeepAliveTuning } from "src/shared/socket/domain/tcpKeepAlive";
+import { checkTcpKeepAliveTuning } from "src/shared/socket/infrastructure/tcpKeepAlive";
 import LoggerFactory from "src/shared/logger/infrastructure/LoggerFactory";
 
 import { config } from "./config";
 import { bootstrapResources } from "./bootstrap/bootstrapResources";
+import { registerBanListCatalogs } from "./bootstrap/banListCatalogs";
+import { registerRoomStatePorts } from "./bootstrap/roomStatePorts";
 import { bootstrapPersistence } from "./bootstrap/bootstrapPersistence";
 import { bootstrapPlugins } from "./bootstrap/bootstrapPlugins";
 import { bootstrapBanListReloader } from "./bootstrap/bootstrapBanListReloader";
 import { bootstrapMatchmaking } from "./bootstrap/bootstrapMatchmaking";
 import { bootstrapReservedDuels } from "./bootstrap/bootstrapReservedDuels";
+import { bootstrapMetrics } from "./bootstrap/bootstrapMetrics";
 import { Server } from "./http-server/Server";
 import { HostServer } from "./socket-server/HostServer";
 import { WSHostServer } from "./socket-server/WSHostServer";
@@ -32,6 +35,11 @@ async function start(): Promise<void> {
 
 	logger.info("🚀 Evolution server starting…");
 	checkTcpKeepAliveTuning(logger);
+	// Before any listener or room exists: rooms and their states read these.
+	registerRoomStatePorts();
+	registerBanListCatalogs();
+	// Before any room exists, so every duel engine is measured.
+	await bootstrapMetrics(config.metrics, logger);
 
 	const ticketRepository = new RedisTicketRepository();
 	const server = new Server(logger, ticketRepository);

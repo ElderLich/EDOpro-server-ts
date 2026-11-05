@@ -65,13 +65,13 @@ order and later tokens overwrite the same fields. A single token matching more
 than one mapping within that tier throws; multiple distinct tokens are allowed:
 
 1. **`ruleMappings`** (mode): `m`/`match`, `t`/`tag`.
-2. **`formatRuleMappings`** (format presets): `edison`/`ed`, `tengu`,
+2. **`formatRuleMappings`** (format presets): `goat`/`gt`, `edison`/`ed`, `tengu`,
    `md`, `jtp`, `jtp-2007-03`, `jm` (the JTP family plays master rule 1),
    `genesys`/`g`/`g<N>`/`genesys<N>`, `rush`, `rushpre`, `world`,
    `pre`, `ocg`, `tcgpre`, `ocgpre`, `tcgart`, `ocgart`.
 3. **`priorityRuleMappings`** (modifiers, win over format tokens): `bo<N>`,
    `lp<N>`, `tm<N>`/`time<N>`, `mr<N>`/`duelrule<N>`, `ot`/`tcg`, `otto`,
-   `toot`/`tt`, `ns`, `nc`, `tcgsegoc`, `dr<N>`, `st<N>`, `to`/`tcgonly`/`tor`,
+   `toot`/`tt`, `ns`, `nc`, `tcgsegoc`, `goat2005`, `dr<N>`, `st<N>`, `to`/`tcgonly`/`tor`,
    `lf*`/`lflist*`, `nf`/`nolflist`, `oor`/`oo`/`ocgonly`, `or`, `tr`, `oomr`,
    `omr`, `tomr`, `tmr`.
 
@@ -87,6 +87,19 @@ Notes worth knowing:
   `calculateDuelOptions` maps it to the fork core's `DUEL_TCG_SEGOC_NONPUBLIC`
   (`0x200`), so it needs the ocgcore fork; the stock core ignores the bit. It
   combines with any format, e.g. `tcg,tcgsegoc#room`.
+- **`goat`** / **`gt`** (format tier) → `{ rule: 5, lflist: alias("goat"), duel_rule: 1,
+  goat_2005: 1, time_limit: 450 }`: Goat Format (TCG, April 2005 list, card pool
+  legal on 2005-08-17). The whitelist comes from evolution-assets
+  (`lflist/goat.lflist.conf`); its pre-errata copies live in the shared
+  pre-errata overlay, and their card scripts are provided by the deployment's
+  private manifest override under `formats/goat/script`.
+- **`goat2005`** (priority tier) → `{ goat_2005: 1 }`: the duel uses the Goat
+  Format (TCG, 2005) rulings from goatformat.com/basics.html that the fork core
+  gates behind `DUEL_GOAT_2005` (`0x400`): ATK/DEF modifiers activatable
+  during damage calculation (#10A) and a response window after the end-of-turn
+  hand-size discard (#19). It is meant
+  for Master Rule 1 rooms, e.g. `mr1,goat2005#room`; the stock core ignores
+  the bit.
 - `ocg` → `{ rule: 0, lflist: 0, time_limit: 450 }`;
   `md` → `{ rule: 5, lflist: alias("md"), duel_rule: 5, time_limit: 450 }`;
   `tcgpre` → `{ rule: 1, duel_rule: 5, time_limit: 450 }` (default TCG lflist,

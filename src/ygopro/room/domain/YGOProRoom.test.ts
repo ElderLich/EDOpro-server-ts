@@ -1,3 +1,4 @@
+import { createYGOProRoomDeps } from "@ygopro/room/application/createYGOProRoomDeps";
 import "reflect-metadata";
 
 import { EventEmitter } from "stream";
@@ -180,6 +181,30 @@ describe("YGOProRoom", () => {
 	it("creates a room with OCG SEGOC rulings when the tcgsegoc param is not sent", () => {
 		const room = YGOProRoomMother.create({ command: "tcg#123" });
 		expect(room.hostInfo.tcg_segoc_nonpublic).toBe(0);
+	});
+
+	it("creates a Goat Format room from the goat token: master rule 1 with the Goat 2005 rulings", () => {
+		const room = YGOProRoomMother.create({ command: "goat#123" });
+		expect(room.hostInfo.duel_rule).toBe(1);
+		expect(room.hostInfo.goat_2005).toBe(1);
+		expect(room.hostInfo.time_limit).toBe(450);
+	});
+
+	it("creates a Goat Format room from the gt alias too", () => {
+		const room = YGOProRoomMother.create({ command: "gt#123" });
+		expect(room.hostInfo.goat_2005).toBe(1);
+		expect(room.hostInfo.duel_rule).toBe(1);
+	});
+
+	it("creates a room with Goat 2005 rulings when the goat2005 param is sent", () => {
+		const room = YGOProRoomMother.create({ command: "mr1,GOAT2005#123" });
+		expect(room.hostInfo.goat_2005).toBe(1);
+		expect(room.hostInfo.duel_rule).toBe(1);
+	});
+
+	it("creates a room without Goat 2005 rulings when the goat2005 param is not sent", () => {
+		const room = YGOProRoomMother.create({ command: "mr1#123" });
+		expect(room.hostInfo.goat_2005).toBe(0);
 	});
 
 	it("Should create a room without deck checking if nc param is send", () => {
@@ -536,6 +561,7 @@ describe("YGOProRoom", () => {
 				PlayerInfoMessageMother.create(), // no password → ranked=false without override
 				"sock-1",
 				new MessageRepositoryMock(),
+				createYGOProRoomDeps(),
 				true, // rankedOverride
 			);
 			expect(room.ranked).toBe(true);
@@ -550,6 +576,7 @@ describe("YGOProRoom", () => {
 				PlayerInfoMessageMother.create(), // no password → ranked=false
 				"sock-2",
 				new MessageRepositoryMock(),
+				createYGOProRoomDeps(),
 				// no rankedOverride
 			);
 			expect(room.ranked).toBe(false);
@@ -564,6 +591,7 @@ describe("YGOProRoom", () => {
 				PlayerInfoMessageMother.create(),
 				"sock-3",
 				new MessageRepositoryMock(),
+				createYGOProRoomDeps(),
 				true, // ticket user explicitly hosting a casual room
 			);
 			expect(room.ranked).toBe(false);
@@ -578,6 +606,7 @@ describe("YGOProRoom", () => {
 				PlayerInfoMessageMother.create(),
 				"sock-4",
 				new MessageRepositoryMock(),
+				createYGOProRoomDeps(),
 				true,
 			);
 			const casual = YGOProRoom.create(
@@ -588,6 +617,7 @@ describe("YGOProRoom", () => {
 				PlayerInfoMessageMother.create(),
 				"sock-5",
 				new MessageRepositoryMock(),
+				createYGOProRoomDeps(),
 				true,
 			);
 			expect(ranked.toRoomListDTO().ranked).toBe(true);
@@ -599,7 +629,7 @@ describe("YGOProRoom", () => {
 		it("opens a default room for a removed format token", () => {
 			const defaults = YGOProRoomMother.create({ command: "#123" }).hostInfo;
 
-			for (const token of ["goat", "hat", "gx", "mdc", "speed"]) {
+			for (const token of ["hat", "gx", "mdc", "speed"]) {
 				expect(YGOProRoomMother.create({ command: `${token}#123` }).hostInfo).toEqual(defaults);
 			}
 		});

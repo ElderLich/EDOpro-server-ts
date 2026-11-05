@@ -10,22 +10,20 @@ import { Team } from "@shared/room/Team";
 import { RoomLeague } from "@shared/room/admission/domain/RoomLeague";
 import { Seat } from "@shared/room/admission/domain/Seat";
 import { PlayerCredential } from "@shared/room/admission/domain/PlayerCredential";
-import { AdmissionTarget, AdmitToRoom } from "@ygopro/room/admission/application/AdmitToRoom";
-import { UserAuth } from "@shared/user-auth/application/UserAuth";
-import { UserProfilePostgresRepository } from "@shared/user-profile/infrastructure/postgres/UserProfilePostgresRepository";
-import { CredentialResolver } from "@ygopro/room/admission/application/CredentialResolver";
-import { RoomAdmission } from "@shared/room/admission/domain/RoomAdmission";
+import { AdmissionTarget } from "@ygopro/room/admission/domain/AdmissionTarget";
 import { Logger } from "@shared/logger/domain/Logger";
 import { DeckRules, DuelState, YgoRoom } from "@shared/room/domain/YgoRoom";
 import { MatchAbandonClientMessage } from "@shared/messages/server-to-client/MatchAbandonClientMessage";
 import { RoomType } from "@shared/room/domain/RoomType";
 import { MessageRepository } from "@ygopro/room/domain/messages/MessageRepository";
 import { ISocket } from "@shared/socket/domain/ISocket";
+import { CardRepository } from "@shared/card/domain/CardRepository";
 import { Deck } from "@shared/deck/domain/Deck";
 import { ReservedDuelSession } from "@shared/reserved-duel/domain/ReservedDuelSession";
 
-import MercuryBanListMemoryRepository from "../../ban-list/infrastructure/YGOProBanListMemoryRepository";
+import { ygoproBanListCatalog } from "../../ban-list/domain/YGOProBanListCatalog";
 import { YGOProClient } from "../../client/domain/YGOProClient";
+import { YGOProRoomDeps } from "./RoomStatePorts";
 import {
 	resolveCardPool,
 	formatRuleMappings,
@@ -54,9 +52,7 @@ import {
 } from "ygopro-msg-encode";
 import { YGOProYrp } from "ygopro-yrp-encode";
 import { DuelRecord } from "./DuelRecord";
-import { YGOProDeckCreator } from "@ygopro/deck/application/YGOProDeckCreator";
 import { YGOProDeckValidator } from "@ygopro/deck/domain/YGOProDeckValidator";
-import { CardYGOProRepository } from "@ygopro/card/infrastructure/CardYGOProRepository";
 import { YGOProBanList } from "@ygopro/ban-list/domain/YGOProBanList";
 
 const BEST_OF = {
@@ -91,7 +87,8 @@ export class YGOProRoom extends YgoRoom {
 	private _currentDuelRecord: DuelRecord;
 	private readonly _hostInfo: HostInfo;
 	private readonly _messageRepository: MessageRepository;
-	private readonly _cardRepository: CardYGOProRepository;
+	private readonly _cardRepository: CardRepository;
+	private readonly deps: YGOProRoomDeps;
 	private readonly _deckRules: DeckRules;
 
 	windbot?: { name: string; deck: string };
@@ -135,6 +132,7 @@ export class YGOProRoom extends YgoRoom {
 		messageRepository,
 		banListHash,
 		cardPool,
+		deps,
 	}: {
 		id: number;
 		password: string;
@@ -149,6 +147,7 @@ export class YGOProRoom extends YgoRoom {
 		messageRepository: MessageRepository;
 		banListHash: number;
 		cardPool: string;
+		deps: YGOProRoomDeps;
 	}) {
 		super({
 			team0,
@@ -170,7 +169,8 @@ export class YGOProRoom extends YgoRoom {
 		this.cardPool = cardPool;
 		this.createdBySocketId = createdBySocketId;
 		this._messageRepository = messageRepository;
-		this._cardRepository = new CardYGOProRepository(this.cardPool);
+		this.deps = deps;
+		this._cardRepository = deps.createCardRepository(this.cardPool);
 		this._deckRules = new DeckRules({
 			mainMin: 40,
 			mainMax: 60,
@@ -181,7 +181,7 @@ export class YGOProRoom extends YgoRoom {
 			rule: toEdoproRule(this._hostInfo.rule),
 			maxDeckPoints: this._hostInfo.max_deck_points,
 		});
-		const banList = MercuryBanListMemoryRepository.findByHash(banListHash);
+		const banList = ygoproBanListCatalog().findByHash(banListHash);
 		this._edoBanListHash = YGOProRoom.banListHashLookup.hashByName(banList?.name ?? "") ?? 0;
 	}
 
@@ -201,10 +201,11 @@ export class YGOProRoom extends YgoRoom {
 		playerInfo: PlayerInfoMessage,
 		createdBySocketId: string,
 		messageRepository: MessageRepository,
+		deps: YGOProRoomDeps,
 		rankedOverride?: boolean,
 	): YGOProRoom {
 		let hostInfo: HostInfo = {
-			lflist: MercuryBanListMemoryRepository.getNewestTCGIndex(),
+			lflist: ygoproBanListCatalog().getNewestTCGIndex(),
 			rule: 1,
 			mode: GameMode.SINGLE,
 			duel_rule: 5,
@@ -217,6 +218,7 @@ export class YGOProRoom extends YgoRoom {
 			max_deck_points: 100,
 			best_of: BEST_OF[GameMode.SINGLE],
 			tcg_segoc_nonpublic: 0,
+			goat_2005: 0,
 		};
 
 		const [configuration, password = ""] = command.split("#");
@@ -254,7 +256,7 @@ export class YGOProRoom extends YgoRoom {
 			hasPin: Boolean(playerInfo.password),
 		});
 		const cardPool = resolveCardPool(options);
-		const banList = MercuryBanListMemoryRepository.findLFListByIndex(hostInfo.lflist);
+		const banList = ygoproBanListCatalog().findLFListByIndex(hostInfo.lflist);
 		const banListHash = banList?.hash ?? 0;
 
 		const room = new YGOProRoom({
@@ -271,6 +273,7 @@ export class YGOProRoom extends YgoRoom {
 			messageRepository,
 			banListHash,
 			cardPool,
+			deps,
 		});
 
 		room._logger = logger.child({ file: "MercuryRoom" });
@@ -389,7 +392,7 @@ export class YGOProRoom extends YgoRoom {
 	}
 
 	get banListName(): string | null {
-		return MercuryBanListMemoryRepository.findByHash(this.banListHash)?.name ?? null;
+		return ygoproBanListCatalog().findByHash(this.banListHash)?.name ?? null;
 	}
 
 	waiting(): void {
@@ -410,17 +413,11 @@ export class YGOProRoom extends YgoRoom {
 		// unconditionally.
 		this.isStart = "waiting";
 		this._players.forEach((player) => player.notReady());
-		const userProfileRepo = new UserProfilePostgresRepository();
-		const admitToRoom = new AdmitToRoom(
-			new CredentialResolver(userProfileRepo, new UserAuth(userProfileRepo), this._logger),
-			new RoomAdmission(),
-			this._logger,
-		);
 		this._roomState = new YGOProWaitingState(
-			admitToRoom,
+			this.deps.createPlayerAdmission(this._logger),
 			this.emitter,
 			this._logger,
-			new YGOProDeckCreator(this._cardRepository, this._deckRules, this._logger),
+			this.deps.createDeckBuilder(this._cardRepository, this._deckRules, this._logger),
 			this.createDeckValidator(),
 		);
 	}
@@ -437,13 +434,9 @@ export class YGOProRoom extends YgoRoom {
 		socket: ISocket,
 		playerInfo: PlayerInfoMessage,
 	): Promise<string | null> {
-		const userProfileRepo = new UserProfilePostgresRepository();
-		const credentialResolver = new CredentialResolver(
-			userProfileRepo,
-			new UserAuth(userProfileRepo),
-			this._logger,
-		);
-		const credential = await credentialResolver.resolve(socket, playerInfo);
+		const credential = await this.deps
+			.createCredentialResolver(this._logger)
+			.resolve(socket, playerInfo);
 
 		return credential.kind === "guest" ? null : credential.userId;
 	}
@@ -451,24 +444,32 @@ export class YGOProRoom extends YgoRoom {
 	rps(): void {
 		this._state = DuelState.RPS;
 		this._roomState?.removeAllListener();
-		this._roomState = new YGOProRockPaperScissorState(this.emitter, this._logger);
+		this._roomState = new YGOProRockPaperScissorState(
+			this.emitter,
+			this._logger,
+			this.deps.abandonment,
+		);
 	}
 
 	choosingOrder(): void {
 		this._state = DuelState.CHOOSING_ORDER;
 		this._roomState?.removeAllListener();
-		this._roomState = new YGOProChoosingOrderState(this.emitter, this._logger);
+		this._roomState = new YGOProChoosingOrderState(
+			this.emitter,
+			this._logger,
+			this.deps.abandonment,
+		);
 	}
 
 	dueling(): void {
 		// Create the Duel object to track turn count for Tag rotation
-		const banList = MercuryBanListMemoryRepository.findByHash(this.banListHash);
+		const banList = ygoproBanListCatalog().findByHash(this.banListHash);
 		this.createDuel(banList?.name ?? null);
 
 		this._state = DuelState.DUELING;
 		this.isStart = "start";
 		this._roomState?.removeAllListener();
-		this._roomState = new YGOProDuelingState(this, this.emitter, this._logger);
+		this._roomState = new YGOProDuelingState(this, this.emitter, this._logger, this.deps.finalizer);
 	}
 
 	sideDecking(): void {
@@ -477,9 +478,10 @@ export class YGOProRoom extends YgoRoom {
 		this._roomState = new YGOProSideDeckingState(
 			this.emitter,
 			this._logger,
-			new YGOProDeckCreator(this._cardRepository, this._deckRules, this._logger),
+			this.deps.createDeckBuilder(this._cardRepository, this._deckRules, this._logger),
 			this.createDeckValidator(),
 			this,
+			this.deps.abandonment,
 		);
 	}
 
@@ -1014,7 +1016,7 @@ export class YGOProRoom extends YgoRoom {
 	}
 
 	private createDeckValidator(): YGOProDeckValidator {
-		const banList = MercuryBanListMemoryRepository.findByHash(this.banListHash);
+		const banList = ygoproBanListCatalog().findByHash(this.banListHash);
 
 		return new YGOProDeckValidator(
 			this._deckRules,
@@ -1063,7 +1065,7 @@ export class YGOProRoom extends YgoRoom {
 	toRoomListDTO(): { [key: string]: unknown } {
 		const started = this.duelState !== DuelState.WAITING;
 		const maxPlayers = this.team0 + this.team1;
-		const banList = MercuryBanListMemoryRepository.findByHash(this.banListHash);
+		const banList = ygoproBanListCatalog().findByHash(this.banListHash);
 
 		return {
 			id: this.id,

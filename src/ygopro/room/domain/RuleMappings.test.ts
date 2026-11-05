@@ -26,13 +26,20 @@ describe("isRecognizedToken", () => {
 		expect(isRecognizedToken("TCGSEGOC")).toBe(true);
 	});
 
+	it("recognizes the goat2005 modifier", () => {
+		expect(isRecognizedToken("goat2005")).toBe(true);
+		expect(isRecognizedToken("GOAT2005")).toBe(true);
+	});
+
 	it("recognizes tokens from the format tier", () => {
 		expect(isRecognizedToken("edison")).toBe(true);
+		expect(isRecognizedToken("goat")).toBe(true);
+		expect(isRecognizedToken("gt")).toBe(true);
 		expect(isRecognizedToken("tengu")).toBe(true);
 	});
 
 	it("does not recognize formats that are not served", () => {
-		for (const token of ["goat", "hat", "gx", "mdc", "speed"]) {
+		for (const token of ["hat", "gx", "mdc", "speed"]) {
 			expect(isRecognizedToken(token)).toBe(false);
 		}
 	});
