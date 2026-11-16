@@ -8,14 +8,13 @@ import { createDisconnectHandler } from "src/bootstrap/disconnectHandler";
 import { RoomFinder } from "@shared/room/application/RoomFinder";
 import { ExpressReconnectHandler } from "@shared/room/application/reconnect/ExpressReconnectHandler";
 import { ISocket } from "@shared/socket/domain/ISocket";
-import { YGOProClient } from "@ygopro/client/domain/YGOProClient";
 import { YGOProGameCreatorHandler } from "@ygopro/room/application/YGOProGameCreatorHandler";
 import { YGOProJoinHandler } from "@ygopro/room/application/YGOProJoinHandler";
 import { YGOProMessageRepository } from "@ygopro/room/infrastructure/YGOProMessageRepository";
-import YGOProRoomList from "@ygopro/room/infrastructure/YGOProRoomList";
 import { MatchmakingConnectionFactory } from "@ygopro/matchmaking/application/MatchmakingConnectionFactory";
 
 import { MessageEmitter } from "@shared/messages/MessageEmitter";
+import { ygoproReconnectRoute } from "./YGOProReconnectRoute";
 
 /** No-op default: a socket server that never received a real factory (e.g. a
  * unit test constructing this handler directly) simply never wires matchmaking. */
@@ -54,19 +53,32 @@ export class YGOProConnectionHandler {
 
 		connectionLogger.info("Client connected");
 
+		// Each handler subscribes to every later frame of its command, so one per connection.
+		let gameCreator: YGOProGameCreatorHandler | null = null;
 		const createGameListener = (): void => {
-			new YGOProGameCreatorHandler(eventEmitter, connectionLogger, messageRepository);
+			gameCreator ??= new YGOProGameCreatorHandler(
+				eventEmitter,
+				connectionLogger,
+				messageRepository,
+			);
 		};
+		let joinHandler: YGOProJoinHandler | null = null;
 		const joinGameListener = (): void => {
-			new YGOProJoinHandler(eventEmitter, connectionLogger, socket, messageRepository);
+			joinHandler ??= new YGOProJoinHandler(
+				eventEmitter,
+				connectionLogger,
+				socket,
+				messageRepository,
+			);
 		};
 
 		new ExpressReconnectHandler(
 			eventEmitter,
 			connectionLogger,
 			socket,
-			(roomId) => YGOProRoomList.findById(roomId) ?? undefined,
-			(client) => client instanceof YGOProClient,
+			ygoproReconnectRoute.roomOf,
+			ygoproReconnectRoute.owns,
+			ygoproReconnectRoute.socketFor,
 		);
 
 		const messageEmitter = new MessageEmitter(

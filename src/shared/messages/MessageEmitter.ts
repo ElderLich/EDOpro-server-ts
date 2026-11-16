@@ -1,4 +1,3 @@
-import { generateUniqueId } from "src/utils/generateUniqueId";
 import { EventEmitter } from "stream";
 
 import { Logger } from "@shared/logger/domain/Logger";
@@ -18,7 +17,7 @@ export class MessageEmitter {
 	constructor(
 		private readonly logger: Logger,
 		private readonly eventEmitter: EventEmitter,
-		private readonly createGameListener: (roomId: number) => void,
+		private readonly createGameListener: () => void,
 		private readonly joinGameListener: () => void,
 	) {
 		this.messageProcessor = new MessageProcessor();
@@ -31,18 +30,17 @@ export class MessageEmitter {
 	}
 
 	processMessage(): void {
-		if (!this.messageProcessor.isMessageReady()) {
-			return;
+		while (this.messageProcessor.isMessageReady()) {
+			this.processNextFrame();
 		}
+	}
 
+	private processNextFrame(): void {
 		this.messageProcessor.process();
 
 		const payload = this.messageProcessor.payload;
 
-		this.logger.debug(`Incomming command: ${payload.command}`);
-		this.logger.debug(`Size: ${payload.size}`);
-		this.logger.debug(`Current Buffer: ${this.messageProcessor.currentBuffer.toString("hex")}`);
-		this.logger.debug(`Current Data: ${payload.data.toString("hex")}`);
+		this.logger.debug(`Incoming command: ${payload.command}`, { size: payload.size });
 
 		if (this.messageProcessor.command === Commands.PLAYER_INFO) {
 			this.eventEmitter.emit(
@@ -52,8 +50,7 @@ export class MessageEmitter {
 		}
 
 		if (this.messageProcessor.command === Commands.CREATE_GAME) {
-			const roomId = generateUniqueId();
-			this.createGameListener(roomId);
+			this.createGameListener();
 			this.eventEmitter.emit(
 				this.messageProcessor.command as unknown as string,
 				this.messageProcessor.payload,
@@ -82,7 +79,5 @@ export class MessageEmitter {
 				this.messageProcessor.payload,
 			);
 		}
-
-		this.processMessage();
 	}
 }

@@ -17,6 +17,11 @@
  * random opponent should field a real TCG deck, mirroring the client's
  * historical behavior of rolling TCG bots for the free-format card.
  *
+ * Genesys accepts a points cap inside the token ("genesys150", "g150"), so
+ * those tokens are matched by pattern instead of listed in the format map; they
+ * sit in the format tier like the Genesys rule mapping itself. Its best-of-3
+ * token "gm" takes no cap and is listed in the map.
+ *
  * Both maps are intentionally partial. Remaining TCG-ish tokens
  * (tcgpre/ocgpre/tcgart/ocgart/ot/tcg) are left unmapped for now — they
  * resolve to the generic pool (null) until there's a reason to special-case
@@ -40,8 +45,15 @@ const FORMAT_TOKEN_TO_POOL = new Map<string, string>([
 	["jm", "jtp"],
 	["edison", "edison"],
 	["ed", "edison"],
+	["gm", "genesys"],
 	["pre", "tcg"],
 ]);
+
+const GENESYS_TOKEN = /^(?:genesys|g)\d*$/;
+
+function formatPoolOf(token: string): string | undefined {
+	return FORMAT_TOKEN_TO_POOL.get(token) ?? (GENESYS_TOKEN.test(token) ? "genesys" : undefined);
+}
 
 export function resolveBotPool(tokens: string[]): string | null {
 	const lowerTokens = tokens.map((token) => token.toLowerCase());
@@ -54,7 +66,7 @@ export function resolveBotPool(tokens: string[]): string | null {
 	}
 
 	for (const token of lowerTokens) {
-		const pool = FORMAT_TOKEN_TO_POOL.get(token);
+		const pool = formatPoolOf(token);
 		if (pool) {
 			return pool;
 		}
